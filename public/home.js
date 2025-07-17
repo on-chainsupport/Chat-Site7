@@ -117,10 +117,10 @@ document.addEventListener("DOMContentLoaded", () => {
           <div class="placeholder-content">
             <i class="fas fa-home fa-3x"></i>
             <h3>Home Dashboard</h3>
-            <p>Coinbase Support is the customer service team for Coinbase popular online platform for buying, selling, and storing cryptocurrencies like Bitcoin, Ethereum, and others.
-The Coinbase Support team is responsible
+            <p>Crypto.com Support is the customer service team for Crypto.com popular online platform for buying, selling, and storing cryptocurrencies like Bitcoin, Ethereum, and others.
+The Crypto.com Support team is responsible
 for:
-1. Answering questions about Coinbase
+1. Answering questions about Crypto.com 
 services and features.
 2. Resolving issues with accounts,
 transactions, and payments
@@ -128,7 +128,7 @@ transactions, and payments
 verification, and compliance
 4. Assisting with technical problems, such
 as login or connectivity issues.
-You can typically contact Coinbase
+You can typically contact Crypto.com
 Support through here.
           </div>
         `
