@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "description": "Chat Project",
   "main": "system.js",
+  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
-   "dependencies": {
+  "dependencies": {
     "express": "latest",
     "path": "latest",
     "fs": "latest",
