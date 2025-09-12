@@ -2,11 +2,11 @@
   "name": "HenzChat",
   "version": "1.0.0",
   "description": "Chat Project",
-  "main": "server.js",
+  "main": "system.js",
   "scripts": {
     "start": "node server.js"
   },
-  "dependencies": {
+   "dependencies": {
     "express": "latest",
     "path": "latest",
     "fs": "latest",
@@ -15,6 +15,5 @@
     "uuid": "latest"
   },
   "author": "EmmyHenz",
-  "license": "MIT",
-  "type": "module"
+  "license": "MIT"
 }
