@@ -1,39 +1,39 @@
-// server.js — CommonJS with dynamic import for uuid (works with uuid@9 ESM)
-const express = require("express");
-const path = require("path");
-const fs = require("fs");
-const crypto = require("crypto");
-const multer = require("multer");
+const express = require("express")
+const path = require("path")
+const fs = require("fs")
+const crypto = require("crypto")
+const multer = require("multer")
+const { v4: uuidv4 } = require("uuid")
 
-(async () => {
-  // dynamic import of ESM-only uuid
-  const { v4: uuidv4 } = await import("uuid");
+const app = express()
+const PORT = process.env.PORT || 7860
 
-  const app = express();
-  const PORT = process.env.PORT || 7860;
+// Middleware
+app.use(express.static(path.join(__dirname, "public")))
+app.use(express.json())
 
-  // Middleware
-  app.use(express.static(path.join(__dirname, "public")));
-  app.use(express.json());
+// Users file path
+const USERS_FILE = path.join(__dirname, "users.json")
 
-  // Files / storage
-  const USERS_FILE = path.join(__dirname, "users.json");
-  const PRIVATE_CHATS_FILE = path.join(__dirname, "private_chats.json");
-  const ONLINE_USERS = new Map();
+// Add these variables for storing private chats and online status
+const PRIVATE_CHATS_FILE = path.join(__dirname, "private_chats.json")
+const ONLINE_USERS = new Map() // Track user online status
 
-  const UPLOADS_DIR = path.join(__dirname, "public", "uploads");
-  if (!fs.existsSync(UPLOADS_DIR)) {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-    console.log("Created uploads directory");
-  }
+// Create uploads directory if it doesn't exist
+const UPLOADS_DIR = path.join(__dirname, "public", "uploads")
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true })
+  console.log("Created uploads directory")
+}
 
-  // Multer config (filename uses uuidv4())
-  const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-      cb(null, UPLOADS_DIR);
-    },
-    filename: (req, file, cb) => {
-      const fileExt = path.extname(file.originalname);
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, UPLOADS_DIR)
+  },
+  filename: (req, file, cb) => {
+    const fileExt = path.extname(file.originalname)
+    const fileName = `${uuidv4()}${fileExt}`
       const fileName = `${uuidv4()}${fileExt}`;
       cb(null, fileName);
     },
