@@ -1,40 +1,325 @@
-const express = require("express")
-const path = require("path")
-const fs = require("fs")
-const crypto = require("crypto")
-const multer = require("multer")
-const { v4: uuidv4 } = require("uuid")
+const express = require("express");
+const path = require("path");
+const fs = require("fs");
+const crypto = require("crypto");
+const multer = require("multer");
+const { v4: uuidv4 } = require("uuid");
 
-const app = express()
-const PORT = process.env.PORT || 7860
+const app = express();
+const PORT = process.env.PORT || 7860;
 
 // Middleware
-app.use(express.static(path.join(__dirname, "public")))
-app.use(express.json())
+app.use(express.static(path.join(__dirname, "public")));
+app.use(express.json());
 
-// Users file path
-const USERS_FILE = path.join(__dirname, "users.json")
+// File paths
+const USERS_FILE = path.join(__dirname, "users.json");
+const PRIVATE_CHATS_FILE = path.join(__dirname, "private_chats.json");
+const ONLINE_USERS = new Map();
 
-// Add these variables for storing private chats and online status
-const PRIVATE_CHATS_FILE = path.join(__dirname, "private_chats.json")
-const ONLINE_USERS = new Map() // Track user online status
-
-// Create uploads directory if it doesn't exist
-const UPLOADS_DIR = path.join(__dirname, "public", "uploads")
+// Uploads folder
+const UPLOADS_DIR = path.join(__dirname, "public", "uploads");
 if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true })
-  console.log("Created uploads directory")
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  console.log("Created uploads directory");
 }
 
-// Configure multer for file uploads
+// Multer config (✅ only once)
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, UPLOADS_DIR)
+    cb(null, UPLOADS_DIR);
   },
   filename: (req, file, cb) => {
-    const fileExt = path.extname(file.originalname)
-    const fileName = `${uuidv4()}${fileExt}`
-      const fileName = `${uuidv4()}${fileExt}`;
+    const fileExt = path.extname(file.originalname);
+    const fileName = `${uuidv4()}${fileExt}`;
+    cb(null, fileName);
+  },
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    if (!file.originalname.match(/\.(jpg|jpeg|png|gif)$/)) {
+      return cb(new Error("Only image files are allowed!"), false);
+    }
+    cb(null, true);
+  },
+});
+
+// Init files if missing
+if (!fs.existsSync(USERS_FILE)) {
+  fs.writeFileSync(USERS_FILE, JSON.stringify([]));
+  console.log("Created users.json file");
+}
+if (!fs.existsSync(PRIVATE_CHATS_FILE)) {
+  fs.writeFileSync(PRIVATE_CHATS_FILE, JSON.stringify({}));
+  console.log("Created private_chats.json file");
+}
+
+// Helpers
+function hashPassword(password) {
+  return crypto.createHash("sha256").update(password).digest("hex");
+}
+
+function updateOnlineStatus(userId, status) {
+  if (status) ONLINE_USERS.set(userId, Date.now());
+  else ONLINE_USERS.delete(userId);
+}
+
+function getConversationId(user1Id, user2Id) {
+  const sortedIds = [user1Id, user2Id].sort();
+  return `${sortedIds[0]}_${sortedIds[1]}`;
+}
+
+/* =========================
+   ROUTES
+========================= */
+
+// LOGIN
+app.post("/api/login", (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.json({ success: false, message: "Username and password are required" });
+  }
+  try {
+    let users = [];
+    try {
+      users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    } catch {}
+    const user = users.find((u) => u.username === username || u.email === username);
+    if (!user) return res.json({ success: false, message: "User not found" });
+
+    if (user.password !== hashPassword(password)) {
+      return res.json({ success: false, message: "Incorrect password" });
+    }
+    const { password: pw, ...userWithoutPassword } = user;
+    res.json({ success: true, message: "Login successful", user: userWithoutPassword });
+  } catch (error) {
+    console.error("Login error:", error);
+    res.json({ success: false, message: "Server error" });
+  }
+});
+
+// REGISTER
+app.post("/api/register", (req, res) => {
+  const { username, email, password } = req.body;
+  if (!username || !email || !password) {
+    return res.json({ success: false, message: "All fields are required" });
+  }
+  try {
+    let users = [];
+    try {
+      users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    } catch {}
+    if (users.some((u) => u.username === username)) {
+      return res.json({ success: false, message: "Username already exists" });
+    }
+    if (users.some((u) => u.email === email)) {
+      return res.json({ success: false, message: "Email already exists" });
+    }
+    const newUser = {
+      id: Date.now().toString(),
+      username,
+      email,
+      password: hashPassword(password),
+      profilePicture: null,
+      createdAt: new Date().toISOString(),
+    };
+    users.push(newUser);
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    const { password: pw, ...userWithoutPassword } = newUser;
+    res.json({ success: true, message: "Registration successful", user: userWithoutPassword });
+  } catch (error) {
+    console.error("Register error:", error);
+    res.json({ success: false, message: "Server error" });
+  }
+});
+
+// GET USERS
+app.get("/api/users", (req, res) => {
+  try {
+    const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8")).map(({ password, ...u }) => u);
+    res.json(users);
+  } catch {
+    res.json([]);
+  }
+});
+
+// USERS with online status
+app.get("/api/users/online", (req, res) => {
+  try {
+    const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    const now = Date.now();
+    for (const [userId, lastSeen] of ONLINE_USERS.entries()) {
+      if (now - lastSeen > 120000) ONLINE_USERS.delete(userId);
+    }
+    const usersWithStatus = users.map(({ password, ...u }) => ({
+      ...u,
+      isOnline: ONLINE_USERS.has(u.id),
+    }));
+    res.json(usersWithStatus);
+  } catch {
+    res.json([]);
+  }
+});
+
+// Update status
+app.post("/api/users/status", (req, res) => {
+  const { userId, status } = req.body;
+  if (!userId) return res.json({ success: false, message: "User ID is required" });
+  updateOnlineStatus(userId, status);
+  res.json({ success: true });
+});
+
+// Private chat - get messages
+app.get("/api/chat/private", (req, res) => {
+  const { userId, receiverId } = req.query;
+  if (!userId || !receiverId) return res.json({ success: false, message: "Both IDs required" });
+  try {
+    const conversationId = getConversationId(userId, receiverId);
+    let privateChats = {};
+    try {
+      privateChats = JSON.parse(fs.readFileSync(PRIVATE_CHATS_FILE, "utf8"));
+    } catch {}
+    res.json(privateChats[conversationId] || []);
+  } catch {
+    res.json([]);
+  }
+});
+
+// Private chat - send message
+app.post("/api/chat/private", (req, res) => {
+  const { userId, username, receiverId, receiverName, message } = req.body;
+  if (!userId || !username || !receiverId || !receiverName || !message) {
+    return res.json({ success: false, message: "Missing fields" });
+  }
+  try {
+    updateOnlineStatus(userId, true);
+    const conversationId = getConversationId(userId, receiverId);
+    let privateChats = {};
+    try {
+      privateChats = JSON.parse(fs.readFileSync(PRIVATE_CHATS_FILE, "utf8"));
+    } catch {}
+    let messages = privateChats[conversationId] || [];
+    const newMessage = {
+      id: Date.now().toString(),
+      senderId: userId,
+      senderName: username,
+      receiverId,
+      receiverName,
+      message,
+      timestamp: new Date().toISOString(),
+    };
+    messages.push(newMessage);
+    if (messages.length > 100) messages = messages.slice(-100);
+    privateChats[conversationId] = messages;
+    fs.writeFileSync(PRIVATE_CHATS_FILE, JSON.stringify(privateChats, null, 2));
+    res.json({ success: true, message: newMessage });
+  } catch {
+    res.json({ success: false, message: "Server error" });
+  }
+});
+
+// Upload profile picture
+app.post("/api/users/profile-picture", upload.single("profilePicture"), (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.json({ success: false, message: "User ID required" });
+  if (!req.file) return res.json({ success: false, message: "No file uploaded" });
+  try {
+    let users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    const index = users.findIndex((u) => u.id === userId);
+    if (index === -1) return res.json({ success: false, message: "User not found" });
+    if (users[index].profilePicture) {
+      const oldPath = path.join(UPLOADS_DIR, path.basename(users[index].profilePicture));
+      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    }
+    const profilePicturePath = `/uploads/${req.file.filename}`;
+    users[index].profilePicture = profilePicturePath;
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    res.json({ success: true, message: "Profile picture updated", profilePicture: profilePicturePath });
+  } catch {
+    res.json({ success: false, message: "Server error" });
+  }
+});
+
+// Update profile
+app.put("/api/users/profile", (req, res) => {
+  const { userId, username, email } = req.body;
+  if (!userId || !username || !email) return res.json({ success: false, message: "All fields required" });
+  try {
+    let users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    const index = users.findIndex((u) => u.id === userId);
+    if (index === -1) return res.json({ success: false, message: "User not found" });
+    if (username !== users[index].username && users.some((u, i) => i !== index && u.username === username)) {
+      return res.json({ success: false, message: "Username exists" });
+    }
+    if (email !== users[index].email && users.some((u, i) => i !== index && u.email === email)) {
+      return res.json({ success: false, message: "Email exists" });
+    }
+    users[index].username = username;
+    users[index].email = email;
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    const { password, ...userWithoutPassword } = users[index];
+    res.json({ success: true, message: "Profile updated", user: userWithoutPassword });
+  } catch {
+    res.json({ success: false, message: "Server error" });
+  }
+});
+
+// Change password
+app.put("/api/users/password", (req, res) => {
+  const { userId, currentPassword, newPassword } = req.body;
+  if (!userId || !currentPassword || !newPassword) {
+    return res.json({ success: false, message: "All fields required" });
+  }
+  try {
+    let users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    const index = users.findIndex((u) => u.id === userId);
+    if (index === -1) return res.json({ success: false, message: "User not found" });
+    if (users[index].password !== hashPassword(currentPassword)) {
+      return res.json({ success: false, message: "Incorrect password" });
+    }
+    users[index].password = hashPassword(newPassword);
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    res.json({ success: true, message: "Password changed" });
+  } catch {
+    res.json({ success: false, message: "Server error" });
+  }
+});
+
+// Delete account
+app.delete("/api/users/:userId", (req, res) => {
+  const { userId } = req.params;
+  const { password } = req.body;
+  if (!userId || !password) return res.json({ success: false, message: "All fields required" });
+  try {
+    let users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    const index = users.findIndex((u) => u.id === userId);
+    if (index === -1) return res.json({ success: false, message: "User not found" });
+    if (users[index].password !== hashPassword(password)) {
+      return res.json({ success: false, message: "Incorrect password" });
+    }
+    if (users[index].profilePicture) {
+      const picPath = path.join(UPLOADS_DIR, path.basename(users[index].profilePicture));
+      if (fs.existsSync(picPath)) fs.unlinkSync(picPath);
+    }
+    users.splice(index, 1);
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    ONLINE_USERS.delete(userId);
+    res.json({ success: true, message: "Account deleted" });
+  } catch {
+    res.json({ success: false, message: "Server error" });
+  }
+});
+
+/* =========================
+   START SERVER
+========================= */
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`Users file path: ${USERS_FILE}`);
+});      const fileName = `${uuidv4()}${fileExt}`;
       cb(null, fileName);
     },
   });
